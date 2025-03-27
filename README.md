@@ -19,7 +19,9 @@ Here's an example video you can try downloading:
 
 <div align="center">
   <a href="https://x.com/nishantvyas/status/1905325510286307818">
-    <img src="https://img.shields.io/badge/X-Post-blue?logo=x&logoColor=white" alt="X Post" />
+    <img src="docs/images/x_download.png" alt="Example Tweet" width="600" />
+    <br />
+    <img src="https://img.shields.io/badge/Try_It-Download_This_Video-blue?logo=x&logoColor=white" alt="Try It: Download This Video" />
   </a>
 </div>
 
