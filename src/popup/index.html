@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X Download</title>
+  <style>
+    body {
+      width: 300px;
+      font-family: Arial, sans-serif;
+      padding: 15px;
+      margin: 0;
+      color: #0f1419;
+      background-color: #fff;
+    }
+    h1 {
+      font-size: 18px;
+      margin-top: 0;
+      color: #1d9bf0;
+    }
+    .info-section {
+      margin-top: 15px;
+    }
+    .info-text {
+      font-size: 14px;
+      color: #536471;
+      line-height: 1.4;
+    }
+    .stats {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #f7f9f9;
+      border-radius: 8px;
+    }
+    .stat-item {
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+    .stat-label {
+      font-weight: bold;
+      margin-right: 5px;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+      margin-left: 10px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 20px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: #1d9bf0;
+    }
+    input:focus + .toggle-slider {
+      box-shadow: 0 0 1px #1d9bf0;
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      margin-top: 15px;
+      user-select: none;
+      font-size: 14px;
+    }
+    .footer {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #536471;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>X Download</h1>
+  
+  <div class="info-section">
+    <p class="info-text">
+      This extension adds a download button to X/Twitter videos. When you see a video in your feed, 
+      look for the download icon in the tweet actions to save it to your device.
+    </p>
+  </div>
+  
+  <div class="toggle-label">
+    <span>Show download button</span>
+    <label class="toggle-switch">
+      <input type="checkbox" id="enable-toggle" checked>
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+  
+  <div class="toggle-label">
+    <span>Ask where to save files</span>
+    <label class="toggle-switch">
+      <input type="checkbox" id="save-as-toggle">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+  
+  <div class="stats">
+    <div class="stat-item">
+      <span class="stat-label">Videos downloaded:</span>
+      <span id="download-count">0</span>
+    </div>
+  </div>
+  
+  <div class="footer">
+    <p>X Download v1.0.0</p>
+  </div>
+  
+  <script src="./index.js"></script>
+</body>
+</html> 
