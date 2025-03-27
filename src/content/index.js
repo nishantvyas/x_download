@@ -218,53 +218,23 @@
     e.preventDefault();
     e.stopPropagation();
     
-    // Find the tweet container
     const button = e.currentTarget;
     const container = button.closest('article');
     
     if (!container) {
-      console.error('Could not find tweet container');
+      showNotification('Could not find video container', 'error');
       return;
     }
-        
-        // Show loading state
-        showLoadingState(button);
-        
-    // Try to find a native download link first
-    findNativeDownloadLink(container)
-      .then(nativeVideoUrl => {
-        if (nativeVideoUrl) {
-          // Use the native download link
-          downloadVideo(button, nativeVideoUrl);
-                return;
-              }
-              
-        // If no native link, try to find the video element and extract source
-        const video = container.querySelector('video');
-        
-        if (!video) {
-          console.error('Could not find video element');
-          throw new Error('No video element found');
-        }
-        
-        // Get video URLs from all possible sources
-        const videoSources = getAllVideoSources(video, container);
-        
-        if (videoSources.length === 0) {
-          throw new Error('Could not find any video sources');
-        }
-        
-        // Use the highest quality source (usually the last one)
-        const bestSource = videoSources[videoSources.length - 1];
-        console.log('Using video source:', bestSource);
-        
-        // Download the video
-        return downloadVideo(button, bestSource);
-      })
-      .catch(error => {
-        console.error('Error in download process:', error);
-        showErrorState(button);
-      });
+    
+    const videoUrl = extractVideoUrl(container);
+    if (!videoUrl) {
+      showErrorState(button);
+      showNotification('Could not find video URL', 'error');
+      return;
+    }
+    
+    showLoadingState(button);
+    downloadVideo(videoUrl, button);
   }
 
   /**
@@ -361,7 +331,7 @@
       console.error("Error closing share menu:", e);
     }
   }
-
+  
   /**
    * Get all possible video sources from the video element and its container
    * @param {HTMLElement} video - The video element
@@ -477,40 +447,47 @@
     return sources;
   }
 
-  /**
-   * Download a video using the background script
-   * @param {HTMLElement} button - The button element
-   * @param {string} videoUrl - URL of the video
-   * @returns {Promise} Promise that resolves when download is complete
-   */
-  function downloadVideo(button, videoUrl) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({
-        action: 'downloadVideo',
-        videoUrl: videoUrl
-      }, (response) => {
-        if (response && response.success) {
-          showSuccessState(button);
-          
-          // Check if we need to refresh the page (if share menu is stuck open)
-          chrome.storage.local.get({ refreshAfterDownload: false }, (data) => {
-            if (data.refreshAfterDownload) {
-              // Reset the flag
-              chrome.storage.local.set({ refreshAfterDownload: false });
-              
-              // Wait a moment for the download to start, then refresh
-              setTimeout(() => {
-                window.location.reload();
-              }, 1000);
-            }
-          });
-          
-          resolve();
-        } else {
-          showErrorState(button);
-          reject(new Error(response?.error || 'Download failed'));
-        }
+  // Add message listener for download completion
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'DOWNLOAD_COMPLETE') {
+      // Find all download buttons
+      const buttons = document.querySelectorAll('.' + BUTTON_CLASS);
+      buttons.forEach(button => {
+        showSuccessState(button);
       });
+      showNotification('Video downloaded successfully!', 'success');
+    }
+  });
+
+  function extractVideoUrl(container) {
+    // First try to get the tweet URL
+    const tweetUrl = window.location.href;
+    if (tweetUrl && (tweetUrl.includes('/status/') || tweetUrl.includes('/tweet/'))) {
+      return tweetUrl;
+    }
+    
+    // If we're not on a tweet page, try to find the tweet link
+    const tweetLink = container.querySelector('a[href*="/status/"]');
+    if (tweetLink) {
+      const href = tweetLink.getAttribute('href');
+      return href.startsWith('http') ? href : `https://twitter.com${href}`;
+    }
+    
+      return null;
+    }
+    
+  function downloadVideo(videoUrl, button) {
+    console.log('Attempting to download video from URL:', videoUrl);
+    chrome.runtime.sendMessage({
+      type: 'DOWNLOAD_VIDEO',
+      url: videoUrl
+    }, (response) => {
+      if (response && response.status === 'started') {
+        showNotification('Download started...', 'info');
+      } else {
+        showErrorState(button);
+        showNotification('Download failed: ' + (response?.message || 'Unknown error'), 'error');
+      }
     });
   }
   
@@ -536,63 +513,104 @@
   }
   
   /**
+   * Show a notification message
+   * @param {string} message - The message to show
+   * @param {string} type - The type of notification ('success', 'error', 'info')
+   */
+  function showNotification(message, type = 'info') {
+    // Create notification container if it doesn't exist
+    let container = document.getElementById('x-download-notifications');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'x-download-notifications';
+      container.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 10000;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      `;
+      document.body.appendChild(container);
+    }
+
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      padding: 12px 24px;
+      margin: 8px;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+    `;
+
+    // Set background color based on type
+    switch (type) {
+      case 'success':
+        notification.style.backgroundColor = '#4caf50';
+        break;
+      case 'error':
+        notification.style.backgroundColor = '#f44336';
+        break;
+      case 'info':
+      default:
+        notification.style.backgroundColor = '#2196f3';
+        break;
+    }
+
+    notification.textContent = message;
+    container.appendChild(notification);
+
+    // Trigger animation
+      setTimeout(() => {
+      notification.style.opacity = '1';
+      notification.style.transform = 'translateY(0)';
+    }, 10);
+
+    // Remove notification after delay
+              setTimeout(() => {
+      notification.style.opacity = '0';
+      notification.style.transform = 'translateY(-20px)';
+      setTimeout(() => {
+        container.removeChild(notification);
+        if (container.children.length === 0) {
+          document.body.removeChild(container);
+        }
+      }, 300);
+    }, 3000);
+  }
+  
+  /**
    * Show loading state on button
    * @param {HTMLElement} button - The button element
    */
   function showLoadingState(button) {
-    // Save original innerHTML
-    button.dataset.originalHtml = button.innerHTML;
-    
-    // Show spinner
-    button.innerHTML = `
-      <div style="width: 18px; height: 18px; border: 2px solid #1d9bf0; border-radius: 50%; border-top-color: transparent; animation: x-download-spin 1s linear infinite;"></div>
-      <style>
-        @keyframes x-download-spin {
+    const icon = button.querySelector('div');
+    if (icon) {
+      icon.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 6v6l4 2"></path>
+        </svg>
+      `;
+      
+      // Add spin animation
+      const style = document.createElement('style');
+      style.textContent = `
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
-      </style>
-    `;
-  }
-  
-  /**
-   * Show success state on button
-   * @param {HTMLElement} button - The button element
-   */
-  function showSuccessState(button) {
-    button.innerHTML = `
-      <div style="color: #00ba7c;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 6L9 17l-5-5"></path>
-        </svg>
-      </div>
-    `;
-    
-    // Reset after delay
-    setTimeout(() => {
-      resetButtonState(button);
-    }, 2000);
-  }
-  
-  /**
-   * Show error state on button
-   * @param {HTMLElement} button - The button element
-   */
-  function showErrorState(button) {
-    button.innerHTML = `
-      <div style="color: #f4212e;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="15" y1="9" x2="9" y2="15"></line>
-          <line x1="9" y1="9" x2="15" y2="15"></line>
-        </svg>
-      </div>
-    `;
-    
-    // Reset after delay
-    setTimeout(() => {
-      resetButtonState(button);
-    }, 2000);
+      `;
+      document.head.appendChild(style);
+    }
   }
   
   /**
@@ -600,9 +618,61 @@
    * @param {HTMLElement} button - The button element
    */
   function resetButtonState(button) {
-    if (button.dataset.originalHtml) {
-      button.innerHTML = button.dataset.originalHtml;
-      delete button.dataset.originalHtml;
+    const icon = button.querySelector('div');
+    if (icon) {
+      icon.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 17V3"></path>
+          <path d="M7 12l5 5 5-5"></path>
+          <path d="M20 21H4"></path>
+        </svg>
+      `;
+    }
+  }
+  
+  /**
+   * Show success state on button
+   * @param {HTMLElement} button - The button element
+   */
+  function showSuccessState(button) {
+    const icon = button.querySelector('div');
+    if (icon) {
+      icon.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"></path>
+        </svg>
+      `;
+      icon.style.color = '#4caf50';
+      
+      // Reset button after 2 seconds
+      setTimeout(() => {
+        resetButtonState(button);
+        icon.style.color = '';
+      }, 2000);
+    }
+  }
+  
+  /**
+   * Show error state on button
+   * @param {HTMLElement} button - The button element
+   */
+  function showErrorState(button) {
+    const icon = button.querySelector('div');
+    if (icon) {
+      icon.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="15" y1="9" x2="9" y2="15"></line>
+          <line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+      `;
+      icon.style.color = '#f44336';
+      
+      // Reset button after 2 seconds
+      setTimeout(() => {
+        resetButtonState(button);
+        icon.style.color = '';
+      }, 2000);
     }
   }
   

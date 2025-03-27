@@ -1,0 +1,9 @@
+{
+  "name": "com.x_download.downloader",
+  "description": "X Video Downloader Native Host",
+  "path": "/Users/nishantvyas/Desktop/1skillsfm/project/x_download/native_host/x_downloader.py",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://dlcnbigficemmkekmikjloogijklpblo/"
+  ]
+} 

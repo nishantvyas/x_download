@@ -19,23 +19,68 @@ chrome.storage.local.get(settings, function(items) {
   console.log('Settings loaded:', settings);
 });
 
+// Native messaging host connection
+let nativePort = null;
+
+function connectToNativeHost() {
+  try {
+    nativePort = chrome.runtime.connectNative('com.x_download.downloader');
+    
+    nativePort.onMessage.addListener((response) => {
+      console.log('Received from native host:', response);
+      if (response.success) {
+        // Notify content script about successful download
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, {
+              type: 'DOWNLOAD_COMPLETE',
+              data: response
+            });
+          }
+        });
+      } else {
+        console.error('Download failed:', response.error);
+      }
+    });
+
+    nativePort.onDisconnect.addListener(() => {
+      console.log('Disconnected from native host');
+      nativePort = null;
+    });
+  } catch (error) {
+    console.error('Failed to connect to native host:', error);
+    nativePort = null;
+  }
+}
+
+// Connect to native host when extension starts
+connectToNativeHost();
+
 // Listen for messages from content script and popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Received message:', message);
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Received message:', request);
   
-  if (message.action === 'downloadVideo') {
-    handleVideoDownload(message.videoUrl, sendResponse);
-    // Keep the message channel open for the async response
+  if (request.type === 'DOWNLOAD_VIDEO') {
+    if (!nativePort) {
+      connectToNativeHost();
+    }
+    
+    if (nativePort) {
+      nativePort.postMessage({ url: request.url });
+      sendResponse({ status: 'started' });
+    } else {
+      sendResponse({ status: 'error', message: 'Native host not connected' });
+    }
     return true;
   }
   
-  if (message.action === 'settingsUpdated') {
+  if (request.action === 'settingsUpdated') {
     // Update settings
-    settings = message.settings;
+    settings = request.settings;
     console.log('Settings updated:', settings);
   }
 
-  if (message.action === 'incrementDownloadCount') {
+  if (request.action === 'incrementDownloadCount') {
     // Increment download counter when using native download button
     incrementDownloadCount();
   }
