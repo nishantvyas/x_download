@@ -13,6 +13,16 @@ A Chrome extension that allows you to easily download videos from X (formerly Tw
 - 📱 Works with both X.com and Twitter.com
 - 🔄 Real-time status updates and notifications
 
+## Example
+
+Here's an example video you can try downloading:
+
+<div align="center">
+  <a href="https://x.com/nishantvyas/status/1905325510286307818">
+    <img src="https://img.shields.io/badge/X-Post-blue?logo=x&logoColor=white" alt="X Post" />
+  </a>
+</div>
+
 ## Installation
 
 ### Chrome Extension
