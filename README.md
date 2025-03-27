@@ -2,6 +2,8 @@
 
 A Chrome extension that allows you to easily download videos from X (formerly Twitter) with a single click.
 
+> ⚠️ **Important Notice**: Be aware that videos may be copyrighted by their owners or X. Use at your own discretion.
+
 ## Features
 
 - 🎥 One-click video downloads from X/Twitter
