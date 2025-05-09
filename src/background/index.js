@@ -21,6 +21,7 @@ chrome.storage.local.get(settings, function(items) {
 
 // Native messaging host connection
 let nativePort = null;
+let currentDownloadTabId = null; // Store the tab ID of the requesting tab
 
 function connectToNativeHost() {
   try {
@@ -28,27 +29,61 @@ function connectToNativeHost() {
     
     nativePort.onMessage.addListener((response) => {
       console.log('Received from native host:', response);
-      if (response.success) {
-        // Notify content script about successful download
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]) {
-            chrome.tabs.sendMessage(tabs[0].id, {
-              type: 'DOWNLOAD_COMPLETE',
-              data: response
-            });
-          }
-        });
-      } else {
-        console.error('Download failed:', response.error);
+      if (!currentDownloadTabId) {
+        console.warn('Received native host message but no tab ID is stored.');
+        return;
       }
+
+      const targetTabId = currentDownloadTabId;
+      currentDownloadTabId = null; // Reset for next download
+
+      const messageType = response.success ? 'DOWNLOAD_COMPLETE' : 'DOWNLOAD_FAILED';
+      
+      chrome.tabs.sendMessage(targetTabId, {
+        type: messageType,
+        data: response
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log(`Could not send ${messageType} to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
+        }
+      });
     });
 
     nativePort.onDisconnect.addListener(() => {
       console.log('Disconnected from native host');
+      if (chrome.runtime.lastError) {
+        console.error('Native host disconnect error:', chrome.runtime.lastError.message);
+      }
+      // If we disconnect unexpectedly during a download, notify the tab
+      if (currentDownloadTabId) {
+        const targetTabId = currentDownloadTabId;
+        currentDownloadTabId = null;
+        chrome.tabs.sendMessage(targetTabId, {
+          type: 'DOWNLOAD_FAILED',
+          data: { success: false, error: 'Native host disconnected unexpectedly.' }
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.log(`Could not send disconnect failure to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
+          }
+        });
+      }
       nativePort = null;
     });
   } catch (error) {
     console.error('Failed to connect to native host:', error);
+    // Notify the requesting tab if connection fails immediately
+    if (currentDownloadTabId) {
+        const targetTabId = currentDownloadTabId;
+        currentDownloadTabId = null;
+        chrome.tabs.sendMessage(targetTabId, {
+            type: 'DOWNLOAD_FAILED',
+            data: { success: false, error: 'Failed to connect to native host.' }
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.log(`Could not send connection failure to tab ${targetTabId}: ${chrome.runtime.lastError.message}`);
+          }
+        });
+    }
     nativePort = null;
   }
 }
@@ -58,20 +93,39 @@ connectToNativeHost();
 
 // Listen for messages from content script and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Received message:', request);
+  console.log('Received message:', request, 'from tab:', sender.tab?.id);
   
   if (request.type === 'DOWNLOAD_VIDEO') {
+    if (!sender.tab) {
+        console.error('Download request received without sender tab information.');
+        sendResponse({ status: 'error', message: 'Missing sender tab info.' });
+        return false; // Indicate async response not needed
+    }
+
+    if (currentDownloadTabId) {
+        // Handle case where a download is already in progress
+        sendResponse({ status: 'error', message: 'Another download is already in progress.' });
+        return false; 
+    }
+
+    currentDownloadTabId = sender.tab.id; // Store the requesting tab ID
+
     if (!nativePort) {
-      connectToNativeHost();
+      console.log('Native port not connected, attempting to connect...');
+      connectToNativeHost(); // This will try to send failure back if it fails
     }
     
     if (nativePort) {
+      console.log(`Sending URL ${request.url} to native host for tab ${currentDownloadTabId}`);
       nativePort.postMessage({ url: request.url });
-      sendResponse({ status: 'started' });
+      sendResponse({ status: 'started' }); 
     } else {
-      sendResponse({ status: 'error', message: 'Native host not connected' });
+      // connectToNativeHost likely already sent a failure message, but reset tabId
+      currentDownloadTabId = null; 
+      sendResponse({ status: 'error', message: 'Native host connection failed.' });
     }
-    return true;
+    // Keep the message channel open for the async response from native host
+    return true; 
   }
   
   if (request.action === 'settingsUpdated') {
@@ -84,6 +138,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Increment download counter when using native download button
     incrementDownloadCount();
   }
+
+  // Return false for synchronous messages or if sendResponse wasn't called
+  return false;
 });
 
 /**

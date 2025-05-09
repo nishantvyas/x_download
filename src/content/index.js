@@ -447,17 +447,33 @@
     return sources;
   }
 
-  // Add message listener for download completion
+  // Add message listener for download completion/failure
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'DOWNLOAD_COMPLETE') {
-      // Find all download buttons
-      const buttons = document.querySelectorAll('.' + BUTTON_CLASS);
-      buttons.forEach(button => {
-        showSuccessState(button);
-      });
+      // Find active download button and show success
+      const button = findActiveDownloadButton(); 
+      if (button) showSuccessState(button);
       showNotification('Video downloaded successfully!', 'success');
+    } else if (message.type === 'DOWNLOAD_FAILED') {
+      // Find active download button and show error
+      const button = findActiveDownloadButton();
+      if (button) showErrorState(button);
+      const errorMsg = message.data?.error || 'Unknown download error';
+      showNotification(`Download failed: ${errorMsg}`, 'error');
     }
   });
+
+  // Helper to find the button currently showing the loading state
+  function findActiveDownloadButton() {
+    const buttons = document.querySelectorAll('.' + BUTTON_CLASS);
+    for (const button of buttons) {
+      const icon = button.querySelector('div svg.spin'); // Look for the spinner
+      if (icon) {
+        return button;
+      }
+    }
+    return null;
+  }
 
   function extractVideoUrl(container) {
     // First try to get the tweet URL
@@ -485,7 +501,8 @@
       if (response && response.status === 'started') {
         showNotification('Download started...', 'info');
       } else {
-        showErrorState(button);
+        // Initial error (e.g., native host connection failed, download already in progress)
+        showErrorState(button); 
         showNotification('Download failed: ' + (response?.message || 'Unknown error'), 'error');
       }
     });
