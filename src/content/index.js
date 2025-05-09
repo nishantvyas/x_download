@@ -88,22 +88,54 @@
    * Scan the page for videos and add download buttons
    */
   function scanForVideos() {
-    // Find all video elements on X/Twitter
-    const videoContainers = findVideoContainers();
+    const videoElements = document.querySelectorAll('video');
     
-    // Process each video container
-    videoContainers.forEach(container => {
-      // Skip already processed containers
-      if (container.hasAttribute(PROCESSED_ATTR) || processedVideos.has(container)) {
-        return;
+    videoElements.forEach(video => {
+      let container = null;
+      let actionsBar = null;
+      let isMediaPage = false;
+      let isModal = false;
+
+      const modalElement = video.closest('div[aria-modal="true"]');
+      if (modalElement) {
+        isMediaPage = true;
+        isModal = true;
+        container = modalElement.querySelector('article[data-testid="tweet"]');
+        if (!container) container = modalElement; 
+      } else if (window.location.pathname.includes('/video/')) {
+        isMediaPage = true;
+        container = document.querySelector('main[role="main"] article[data-testid="tweet"]');
+      }
+
+      if (!container) {
+        container = video.closest('article[data-testid="tweet"]');
       }
       
-      // Mark as processed
-      container.setAttribute(PROCESSED_ATTR, 'true');
-      processedVideos.add(container);
+      if (!container) {
+        let parent = video.parentElement;
+        for (let i = 0; i < 5 && parent; i++) {
+            if (parent.tagName === 'ARTICLE' && parent.getAttribute('data-testid') === 'tweet') {
+                container = parent;
+                break;
+            }
+            parent = parent.parentElement;
+        }
+        if (!container) {
+            console.warn('X Download: Video found outside a standard tweet article structure.', video);
+            container = video.closest('div[data-testid*="cellInnerDiv"]') || video.parentElement;
+        }
+      }
       
-      // Add download button
-      addDownloadButton(container);
+      if (container && (container.hasAttribute(PROCESSED_ATTR) || processedVideos.has(container))) {
+        return;
+      }
+
+      if (container) {
+        container.setAttribute(PROCESSED_ATTR, 'true');
+        processedVideos.add(container);
+        actionsBar = findActionsBar(container, isMediaPage, isModal);
+        addDownloadButton(container, actionsBar, isMediaPage);
+      }
     });
   }
   
@@ -140,32 +172,83 @@
   
   /**
    * Add download button to a video container
-   * @param {HTMLElement} container - The container element
+   * @param {HTMLElement} container - The container element (tweet or media page article)
+   * @param {HTMLElement|null} targetToolbar - The pre-identified actions bar (optional)
+   * @param {boolean} isMediaPage - Flag if it's the media page view
    */
-  function addDownloadButton(container) {
-    // Create download button
+  function addDownloadButton(container, targetToolbar = null, isMediaPage = false) {
     const button = createDownloadButton();
     
-    // Find a good place to insert the button
-    const actionsBar = findActionsBar(container);
-    
-    if (actionsBar) {
-      // Insert button in the actions bar
-      actionsBar.appendChild(button);
-      } else {
-      // If actions bar not found, insert button directly in container
-      container.appendChild(button);
+    if (targetToolbar) {
+        if (!targetToolbar.querySelector('.' + BUTTON_CLASS)) {
+            const shareButton = targetToolbar.querySelector('[data-testid="share"], [data-testid="retweet"]');
+            if(shareButton && shareButton.parentElement === targetToolbar) {
+                 targetToolbar.insertBefore(button, shareButton.nextSibling);
+            } else {
+                 targetToolbar.appendChild(button);
+            }
+        }
+    } else {
+        const fallbackActions = container.querySelector('div[role="group"]');
+        if (fallbackActions && !fallbackActions.querySelector('.' + BUTTON_CLASS)) {
+            fallbackActions.appendChild(button);
+        } else if (!container.querySelector('.' + BUTTON_CLASS)) { 
+            container.appendChild(button);
+        }
+        console.warn(`X Download: Could not find a specific actions bar for media page: ${isMediaPage}. Container:`, container);
     }
   }
   
   /**
-   * Find the actions bar in a tweet
-   * @param {HTMLElement} container - The tweet container
+   * Find the actions bar in a tweet or media page
+   * @param {HTMLElement} container - The tweet container or media page article
+   * @param {boolean} isMediaPage - Flag if it's the media page view (modal or dedicated video page)
+   * @param {boolean} isModal - Flag if it's specifically a modal view
    * @returns {HTMLElement|null} The actions bar or null if not found
    */
-  function findActionsBar(container) {
-    // Look for the action buttons row in the tweet
-    return container.querySelector('[role="group"]');
+  function findActionsBar(container, isMediaPage, isModal) {
+    let bar = null;
+    if (isMediaPage) {
+        if (isModal) {
+            // Selector for media page (modal view)
+            bar = document.querySelector('div[aria-modal="true"] div[role="group"][class*="r-1oszu61"], div[aria-modal="true"] div[role="group"][class*="r-1kbdv8c"]');
+            if (bar) return bar; 
+             // Fallback for different media modal structures
+            bar = document.querySelector('div[aria-modal="true"] article[data-testid="tweet"] div[role="group"]');
+        } else {
+            // Dedicated video page (not a modal) - toolbar is usually within the main article found
+            // This specific selector was provided for a media page that wasn't a modal
+            bar = container.querySelector('div.css-175oi2r.r-1kbdv8c.r-18u37iz.r-1oszu61'); 
+            if(bar) return bar;
+            // More general selector for toolbars within the main content of a dedicated video page
+             bar = container.querySelector('div[role="group"][class*="r-1kbdv8c"], div[role="group"][class*="r-1wtj0ep"]');
+        }
+    } else {
+        // Standard tweet view on timeline
+        const potentialBars = container.querySelectorAll(':scope > div > div[role="group"], :scope > div > div > div[role="group"]');
+        for (const pBar of potentialBars) {
+            if (pBar.querySelector('button[data-testid="reply"], button[data-testid="retweet"], button[data-testid="like"]')) {
+                bar = pBar;
+                break;
+            }
+        }
+        if (!bar) bar = container.querySelector('div[role="group"][id^="id__"]'); 
+        if (bar && bar.querySelectorAll('button[data-testid]').length > 0) return bar;
+        if (!bar) bar = container.querySelector('div[role="group"][class*="r-1kbdv8c"], div[role="group"][class*="r-18u37iz"][class*="r-1wtj0ep"]');
+    }
+    
+    if (bar && bar.querySelectorAll('button[data-testid]').length > 0) {
+        return bar;
+    }
+
+    // Last resort: find any group with more than one button if specific selectors fail
+    // If it's a media page (modal or dedicated), search the whole document for a relevant toolbar
+    const searchContext = (isMediaPage && !isModal) ? document : container;
+    const groups = searchContext.querySelectorAll('div[role="group"]');
+    for(let group of groups) {
+        if (group.querySelectorAll('button[data-testid]').length > 0 && group.offsetParent !== null) return group; // Check if visible
+    }
+    return null;
   }
   
   /**
@@ -219,20 +302,40 @@
     e.stopPropagation();
     
     const button = e.currentTarget;
-    const container = button.closest('article');
+    let container = button.closest('article[data-testid="tweet"]');
+    const isModalView = !!button.closest('div[aria-modal="true"]');
+    const isVideoPage = window.location.pathname.includes('/video/');
+
+    if (!container || isModalView || isVideoPage) {
+        if (isModalView) {
+            container = document.querySelector('div[aria-modal="true"] article[data-testid="tweet"]');
+        }
+        if (!container && isVideoPage) { 
+            container = document.querySelector('main[role="main"] article[data-testid="tweet"]');
+        }
+        if(!container && button.closest('div[role="group"]')){
+            const toolbar = button.closest('div[role="group"]');
+            if (toolbar) container = document.querySelector('article[data-testid="tweet"]'); 
+        }
+    }
     
     if (!container) {
-      showNotification('Could not find video container', 'error');
+      container = document.querySelector('article[data-testid="tweet"]');
+    }
+
+    if (!container) {
+      showNotification('Could not find video container or tweet article', 'error');
+      showErrorState(button);
       return;
     }
     
     const videoUrl = extractVideoUrl(container);
     if (!videoUrl) {
       showErrorState(button);
-      showNotification('Could not find video URL', 'error');
+      showNotification('Could not find video URL from the tweet', 'error');
       return;
     }
-    
+              
     showLoadingState(button);
     downloadVideo(videoUrl, button);
   }
@@ -505,10 +608,10 @@
         showErrorState(button); 
         showNotification('Download failed: ' + (response?.message || 'Unknown error'), 'error');
       }
-    });
-  }
-  
-  /**
+      });
+    }
+    
+    /**
    * Get video source from video element
    * @param {HTMLElement} video - The video element
    * @returns {string|null} The video source URL or null if not found
@@ -686,13 +789,13 @@
       icon.style.color = '#f44336';
       
       // Reset button after 2 seconds
-      setTimeout(() => {
+        setTimeout(() => {
         resetButtonState(button);
         icon.style.color = '';
       }, 2000);
     }
   }
-  
+
   /**
    * Debounce function to limit frequency of execution
    * @param {Function} func - The function to debounce
